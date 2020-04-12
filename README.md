@@ -1,7 +1,7 @@
 # epub-optimizer
 python script to reduce size of epub file by compressing the images inside the epub.
 
-# executable (dist/epub-optimizer.exe) usage
+## executable (dist/epub-optimizer.exe) usage
 epub-optimizer.exe -f "path_to_epub_file"
 
 epub-optimizer.exe -d "path_to_directory_with_epub_files"
