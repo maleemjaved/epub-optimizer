@@ -7,147 +7,191 @@ import shutil
 
 
 class ImgOptim():
-    def __init__(self, bpath, fpath, spath, pngexe, jpgexe):
-        self.base_path = bpath
-        self.epub_path = fpath
-        self.script_path = spath
-        self.pngexe = pngexe
-        self.jpgexe = jpgexe
+    def __init__(self, input_type, input_path, png_utility, jpg_utility):
+        input_type = input_type
+        input_path = input_path
 
-        self.zip_tempdir_obj, self.zip_tempdir = self.funzip()
-        self.jpg_arr, self.png_arr = self.get_imgs()
-        self.png_optim()
-        self.jpg_optim()
-        self.zip_back()
+        png_utility = png_utility
+        jpg_utility = jpg_utility
 
-    def funzip(self):
-        self.epub_dir, self.epub_fname = os.path.split(self.epub_path)
-        epub_name, epub_ext = os.path.splitext(self.epub_fname)
+        self.main_function(input_type, input_path, png_utility, jpg_utility)
 
-        print(f'{self.epub_fname} Under Processing . . . ')
+    def main_function(self, input_type, input_path, png_utility, jpg_utility):
+        epub_file_array = []
 
+        if input_type == 1:
+            epub_file_array = self.file_from_dir(input_path, ext='.epub')
+        else:
+            epub_file_array.append(input_path)
+
+        for single_epub in epub_file_array:
+            self.optimize_one(file_path=single_epub, png_utility=png_utility, jpg_utility=jpg_utility)
+
+    def optimize_one(self, file_path, png_utility, jpg_utility):
         """
-        Need to create temporary directory because the 3rd party script used here is unable to do in
-        memory compression.
+        This will produce new compressed .epub file after applying all the transformations
+
+        :param filepath: path of file (.epub)
+        :return: "Success or Fail"
         """
-        TEMP_DIR = tempfile.TemporaryDirectory()
-        TEMP_DIR_PATH = pathlib.Path(TEMP_DIR.name)
+        # Book Under Processing
 
-        with zipfile.ZipFile(self.epub_path, 'r') as zip_ref:
-            zip_ref.extractall(TEMP_DIR_PATH)
+        # provide epub file path
+        unzip_info = self.file_unzip(file_path)
 
-        return TEMP_DIR , TEMP_DIR_PATH
+        # get paths array of jpg and png file in the epub ( extracted in temporary directory)
+        jpg_files = self.file_from_dir(dir_path=unzip_info['temp_dir_epub'], ext='.jpg')
+        png_files = self.file_from_dir(dir_path=unzip_info['temp_dir_epub'], ext='.png')
 
-    def get_imgs(self):
-        # list of paths in files
-        jpg_files = []
-        png_files = []
+        # compress files png and jpg
+        self.png_compress(pngexe=png_utility, png_file_array=png_files)
+        self.jpg_compress(jpgexe=jpg_utility, jpg_file_array=jpg_files)
 
-        for r, d, f in os.walk(self.zip_tempdir):
+        # temporary dir (where epub is extracted) will be zipped back to produce new compressed epub
+        self.dir_to_zip(new_file_dir=unzip_info["file_dir_path"], old_file_name=unzip_info["file_full_name"],
+                        dir_to_zip=unzip_info["temp_dir_epub"])
+
+    def file_unzip(self, file_path):
+        """
+        This will unzip the file in temporary directory.
+
+        :param file_path: path of file (.epub)
+        :return: {file_path: PathObj, file_name: "", temporary_dir: PathObj}
+        """
+
+        file_dir_path, file_full_name = os.path.split(file_path)
+        file_name, file_ext = os.path.splitext(file_full_name)
+
+        # Printing book name to console
+        print(f'Processing "{file_full_name}" . . . .')
+
+        temp_dir_obj = tempfile.TemporaryDirectory()
+        temp_dir_path = pathlib.Path(temp_dir_obj.name)
+
+        with zipfile.ZipFile(file_path, 'r') as zip_ref:
+            zip_ref.extractall(temp_dir_path)
+
+        unzip_info = {
+            "file_full_path": file_path,
+            "file_dir_path": file_dir_path,
+            "file_full_name": file_full_name,
+            "temp_dir_epub": temp_dir_obj
+        }
+        return unzip_info
+
+    def file_from_dir(self, dir_path, ext=None):
+        """
+        This function will return array of files from given directory path of specific extension.
+
+        :param dir_path: directory path
+        :param ext: extension of files
+        :return: array of file paths of specific extension
+        """
+        file_arr = []
+
+        for r, d, f in os.walk(dir_path.name):
             for file in f:
-                if file.endswith(".jpg"):
-                    jpg_files.append(pathlib.Path(os.path.join(r, file)))
-                if file.endswith(".png"):
-                    png_files.append(pathlib.Path(os.path.join(r, file)))
+                if ext != None:
+                    if file.endswith(ext):
+                        file_arr.append(pathlib.Path(os.path.join(r, file)))
+                else:
+                    file_arr.append(pathlib.Path(os.path.join(r, file)))
+        return file_arr
 
-        return jpg_files, png_files
-
-    def png_stats(self):
-        png_tsize = 0
-        for i in (self.png_arr):
-            png_tsize += i.stat().st_size
-        kbs = png_tsize / 1024
-        mbs = kbs / 1024
-        return (kbs, mbs)
-
-    def jpg_stats(self):
-        jpg_tsize = 0
-        for i in (self.jpg_arr):
-            jpg_tsize += i.stat().st_size
-        kbs = jpg_tsize / 1024
-        mbs = kbs / 1024
-        return (kbs, mbs)
-
-    def png_optim(self):
-        # size before (before_kilobytes -> b_kbs) compression
-        b_kbs, b_mbs = self.png_stats()
-
+    def png_compress(self, pngexe, png_file_array):
+        """
+        this function will compress the .png images
+        :param pngexe: executable file for .png file compression
+        :param png_file_array: array of .png file paths
+        :return: ""
+        """
         yes_c = 0
         no_c = 0
 
-        for indx, i in enumerate(self.png_arr):
-            file_path_str = str(i)
-            final_cmnd = f'{str(self.pngexe)} --ext=.png --force {file_path_str}'
-            # a = subprocess.run([str(pngquant), file_path_str])
-            a = subprocess.run(final_cmnd, shell=True)
+        size_before_compression = self.file_size(file_array=png_file_array)
+
+        for indx, i in enumerate(png_file_array):
+            png_file_path = str(i)
+            shell_command = f'{str(pngexe)} --ext=.png --force {png_file_path}'
+            a = subprocess.run(shell_command, shell=True)
             if a.returncode != 0:
                 no_c += 1
             if a.returncode == 0:
                 yes_c += 1
 
-        # size after (after_kilobytes -> a_kbs) compression
-        a_kbs, a_mbs = self.png_stats()
+        size_after_compression = self.file_size(file_array=png_file_array)
+        total_png_file = len(png_file_array)
+        print(f'+===+< PNG COMPRESSION SUMMARY >+===+')
+        print(f'Success: {yes_c}/{total_png_file} || Failed: {no_c}/{total_png_file}')
+        print(f'Before: {size_before_compression} Mb || After: {size_after_compression} Mb')
 
-        t_png_images = len(self.png_arr)
-        print(f'+===+< PNG COMPRESSION >+===+')
-        print(f'Success: {t_png_images}/{yes_c} || Failed: {t_png_images}/{no_c}')
-        print(f'Before: {b_mbs} Mb || After: {a_mbs}')
-
-    def jpg_optim(self):
+    def jpg_compress(self, jpgexe, jpg_file_array):
+        """
+        this will compress the jpg files
+        :param jpgexe: third party commandline utility to compress jpg
+        :param jpg_file_array: array containing path of jpg files
+        :return:
+        """
         yes_c = 0
         no_c = 0
 
-        # size before (before_kilobytes -> b_kbs) compression
-        b_kbs, b_mbs = self.jpg_stats()
+        size_before_compression = self.file_size(file_array=jpg_file_array)
 
-        """
-        Temporary directory is requried for lossy jpeg file is not overwritable so i have to save
-        these images to temporary directory
-        """
-        TEMP_DIR_JPEG = tempfile.TemporaryDirectory()
-        TEMP_DIR_JPEG_PATH = pathlib.Path(TEMP_DIR_JPEG.name)
-        self.jpg_tempdir = TEMP_DIR_JPEG_PATH
+        tempdir_jpg_obj = tempfile.TemporaryDirectory()
+        tempdir_jpg_path = pathlib.Path(tempdir_jpg_obj.name)
 
         # this array will help us later for replacing images from temporary to actual folder
-        jpg_rep_arr = []
+        jpg_rep_array = []
 
         # JPG parameters for optimizations
         quality = f'-quality 25'
         smooth = f'-smooth 2'
 
         # Jpg optimization using cjpeg (mozjpeg)
-        for indx, i in enumerate(self.jpg_arr):
-            fpath, fname = os.path.split(i)
-            output_fpath = pathlib.Path(os.path.join(TEMP_DIR_JPEG_PATH, fname))
-            jpg_rep_arr.append((output_fpath, i))
+        for indx, i in enumerate(jpg_file_array):
+            jpg_file_path, jpg_file_name = os.path.split(i)
+            output_file_path = pathlib.Path(os.path.join(tempdir_jpg_path, jpg_file_name))
 
-            outfile = f' -outfile "{str(output_fpath)}"'
-            full_cmnd = str(self.jpgexe) + " " + quality + " " + smooth + " " + outfile + " " + f'"{str(i)}"'
+            outfile = f' -outfile "{str(output_file_path)}"'
+            shell_command = str(jpgexe) + " " + quality + " " + smooth + " " + outfile + " " + f'"{str(i)}"'
 
-            a = subprocess.run(full_cmnd, shell=True)
+            a = subprocess.run(shell_command, shell=True)
+
             if a.returncode != 0:
                 no_c += 1
             if a.returncode == 0:
                 yes_c += 1
 
-        t_jpg_images = len(self.jpg_arr)
-        print(f'+===+< JPG COMPRESSION >+===+')
-        print(f'Success: {t_jpg_images}/{yes_c} || Failed: {t_jpg_images}/{no_c}')
+            jpg_rep_array.append((output_file_path, i))
+        # for loop ends here
 
         # Replacing from temporary to actual temporary zip folder
-        for i in jpg_rep_arr:
+        for i in jpg_rep_array:
             remain = i[0]
             remove = i[1]
             shutil.move(remain, remove)
 
-        # size after (after_kilobytes -> a_kbs) compression
-        a_kbs, a_mbs = self.jpg_stats()
-        print(f'Before: {b_mbs} Mb || After: {a_mbs}')
+        size_after_compression = self.file_size(file_array=jpg_file_array)
+        total_jpg_file = len(jpg_file_array)
 
-    def zip_back(self):
-        optim_book_path = self.epub_dir
-        optim_book_name = "optim_" + self.epub_fname
+        print(f'+===+< JPG COMPRESSION SUMMARY >+===+')
+        print(f'Success: {yes_c}/{total_jpg_file} || Failed: {no_c}/{total_jpg_file}')
+        print(f'Before: {size_before_compression} Mb || After: {size_after_compression} Mb')
 
-        shutil.make_archive(pathlib.Path(os.path.join(optim_book_path, optim_book_name)), 'zip', self.zip_tempdir)
+    def file_size(self, file_array):
+        """
+        given a array of file paths this will return the aggregated size in megabytes
+        :param file_array: array object containing file paths
+        :return: aggregated size in Mb
+        """
+        total_bytes = 0
+        for i in (file_array):
+            total_bytes += i.stat().st_size
+        mbs = total_bytes / (1024 * 1024)
+        return round(mbs, 2)
 
-        print(f'!!! NEW EPUB CREATED !!!')
+    def dir_to_zip(self, new_file_dir, old_file_name, dir_to_zip):
+        new_file_name = 'OPTIMIZED_' + old_file_name
+        shutil.make_archive(pathlib.Path(os.path.join(new_file_dir, new_file_name)), 'zip', dir_to_zip.name)
+        print(f'File "{new_file_name}" Compressed Successfully\n')
+        print(f'==================== ++ [^_^] ++ ====================\n\n')
