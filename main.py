@@ -1,7 +1,6 @@
 import os
 import sys
 import pathlib
-
 from optim.img import ImgOptim
 
 base_path = os.path.dirname(os.path.abspath(__file__))
