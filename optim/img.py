@@ -191,7 +191,13 @@ class ImgOptim():
         return round(mbs, 2)
 
     def dir_to_zip(self, new_file_dir, old_file_name, dir_to_zip):
+        
         new_file_name = 'OPTIMIZED_' + old_file_name
-        shutil.make_archive(pathlib.Path(os.path.join(new_file_dir, new_file_name)), 'zip', dir_to_zip.name)
+        new_full_file_path = pathlib.Path(os.path.join(new_file_dir, new_file_name))
+
+        zip_file_full_path =shutil.make_archive(pathlib.Path(os.path.join(new_file_dir, new_file_name)), 'zip', dir_to_zip.name)
+        os.rename(zip_file_full_path, new_full_file_path)
+
+
         print(f'File "{new_file_name}" Compressed Successfully\n')
         print(f'==================== ++ [^_^] ++ ====================\n\n')
